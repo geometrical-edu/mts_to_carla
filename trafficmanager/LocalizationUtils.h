@@ -56,5 +56,11 @@ namespace traffic_manager {
   using TargetWPInfo = std::pair<SimpleWaypointPtr,uint64_t>;
   TargetWPInfo GetTargetWaypoint(const Buffer& waypoint_buffer, const float& target_point_distance);
 
+
+  /////MTS Update
+  float VectorDotProduct(const cg::Vector3D &heading_vector, 
+                         const cg::Vector3D &next_vector);
+
+
 } // namespace traffic_manager
 } // namespace carla

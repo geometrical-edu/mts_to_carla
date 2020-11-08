@@ -172,6 +172,15 @@ namespace road {
       return _data.GetControllers();
     }
 
+
+    /////MTS Extension
+
+    const Road &GetRoad(Waypoint waypoint) const;
+
+    const Lane &GetLaneById(const RoadId road_id, SectionId section_id, LaneId lane_id) const;
+
+    const Road &GetRoadById(const RoadId id) const;
+
 #ifdef LIBCARLA_WITH_GTEST
     MapData &GetMap() {
       return _data;

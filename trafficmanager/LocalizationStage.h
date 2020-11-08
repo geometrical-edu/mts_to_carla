@@ -22,6 +22,14 @@ namespace cc = carla::client;
 using LocalMapPtr = std::shared_ptr<InMemoryMap>;
 using LaneChangeLocationMap = std::unordered_map<ActorId, cg::Location>;
 
+
+
+/////MTS Extension
+using RoadSectionPair = std::pair<crd::RoadId, crd::SectionId>;
+using LocalRoadInfo = std::unordered_map<RoadSectionPair, crd::LaneId, boost::hash<RoadSectionPair>>;
+
+
+
 /// This class has functionality to maintain a horizon of waypoints ahead
 /// of the vehicle for it to follow.
 /// The class is also responsible for managing lane change decisions and
@@ -55,6 +63,9 @@ private:
                               const bool is_at_junction_entrance,
                               Buffer &waypoint_buffer);
 
+
+  /////MTS Extended
+
 public:
   LocalizationStage(const std::vector<ActorId> &vehicle_id_list,
                     BufferMap &buffer_map,
@@ -72,6 +83,17 @@ public:
   void RemoveActor(const ActorId actor_id) override;
 
   void Reset() override;
+
+
+  /////MTS Extension
+
+  void MTS_SurroundingUpdate(const unsigned long index);
+  void GetLocalRoadInfo(LocalRoadInfo& info, const crd::Lane& lane);
+
+  void DrawLeader(ActorId actor_id, LocalizationData &output);
+  void DrawNeighbor(ActorId actor_id, LocalizationData &output);
+
+
 };
 
 } // namespace traffic_manager

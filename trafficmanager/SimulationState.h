@@ -90,6 +90,11 @@ public :
 
   cg::Vector3D GetDimensions(const ActorId actor_id) const;
 
+
+  /////MTS Extension
+  void GlobalToLocal(const ActorId actor_id, cg::Location &location) const;
+  void LocalToGlobal(const ActorId actor_id, cg::Location &location) const;
+  
 };
 
 } // namespace traffic_manager

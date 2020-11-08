@@ -10,6 +10,10 @@ using namespace constants::PathBufferUpdate;
 using namespace constants::LaneChange;
 using namespace constants::WaypointSelection;
 
+/////MTS Extension
+using namespace constants::MTSCar;
+
+
 LocalizationStage::LocalizationStage(
   const std::vector<ActorId> &vehicle_id_list,
   BufferMap &buffer_map,
@@ -196,6 +200,17 @@ void LocalizationStage::Update(const unsigned long index) {
 
   // Updating geodesic grid position for actor.
   track_traffic.UpdateGridPosition(actor_id, waypoint_buffer);
+
+
+  /////MTS Extension
+
+  if (actor_id == vehicle_id_list.at(0))
+  {
+    MTS_SurroundingUpdate(index);
+    DrawLeader(actor_id, output);
+    DrawNeighbor(actor_id, output);
+  }
+
 }
 
 void LocalizationStage::ExtendAndFindSafeSpace(const ActorId actor_id,
@@ -418,6 +433,313 @@ void LocalizationStage::DrawBuffer(Buffer &buffer) {
     color = {0u, 0u, 0u};
   }
 }
+
+
+/////MTS Extension
+
+void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
+{
+  const ActorId actor_id = vehicle_id_list.at(index);
+  
+  //Basic actor information
+  const cg::Location actor_location = simulation_state.GetLocation(actor_id);
+  const cg::Vector3D actor_heading = simulation_state.GetHeading(actor_id);
+  float actor_half_length = simulation_state.GetDimensions(actor_id).x;
+  float actor_half_width = simulation_state.GetDimensions(actor_id).y;
+
+  //Define search bound (Radius of circle)
+  const float bound = actor_half_length + MAX_OBSERVING_DISTANCE;
+
+  //The distance will be shorter after finding new target
+  float leader_distance = FLT_MAX;
+  float left_distance = FLT_MAX;
+  float right_distance = FLT_MAX;
+  float left_front_distance = FLT_MAX;
+  float right_front_distance = FLT_MAX;
+  float left_rear_distance = FLT_MAX;
+  float right_rear_distance = FLT_MAX;
+
+  //Temporary result
+  boost::optional<ActorId> potential_leader; // c++17: std, but c++14: boost instead.
+  boost::optional<ActorId> main_leader;
+  boost::optional<ActorId> leftVeh;
+  boost::optional<ActorId> rightVeh;
+  boost::optional<ActorId> leftFrontVeh;
+  boost::optional<ActorId> rightFrontVeh;
+  boost::optional<ActorId> leftRearVeh;
+  boost::optional<ActorId> rightRearVeh;
+
+  
+  //Road information
+  LocalRoadInfo mid_info, left_info, right_info;
+  SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(actor_location);
+  SimpleWaypointPtr actor_left_waypoint = actor_waypoint->GetLeftWaypoint();
+  SimpleWaypointPtr actor_right_waypoint = actor_waypoint->GetRightWaypoint();
+  
+  bool hasLeftLane = false;
+  bool hasRightLane = false;
+  bool isJunction = actor_waypoint->CheckJunction();
+
+  
+  crd::RoadId actor_road_id;
+  double actor_road_length;
+  if(!isJunction){
+    const crd::Lane& actor_lane = local_map->GetLane(actor_waypoint);
+    actor_road_id = actor_lane.GetRoad()->GetId();
+    actor_road_length = actor_lane.GetRoad()->GetLength();
+    GetLocalRoadInfo(mid_info, actor_lane);
+    if(actor_left_waypoint != nullptr){
+      hasLeftLane = true;
+      const crd::Lane& left_lane = local_map->GetLeftLane(actor_waypoint);
+      GetLocalRoadInfo(left_info, left_lane);
+    }
+    if(actor_right_waypoint != nullptr){
+      hasRightLane = true;
+      const crd::Lane& right_lane = local_map->GetRightLane(actor_waypoint);
+      GetLocalRoadInfo(right_info, right_lane);
+    }
+  }
+
+  //Scan the whole vehicle list
+  for(ActorId target_id: vehicle_id_list)
+  {
+    //Filter: current referenced vehicle
+    if(target_id == actor_id)
+      continue;
+
+    const cg::Location target_location = simulation_state.GetLocation(target_id);
+    const cg::Vector3D target_heading = simulation_state.GetHeading(target_id);
+    float dot_heading = VectorDotProduct(actor_heading, target_heading);
+
+    //Filter: vehicles are on opposite lane
+    if(dot_heading < 0.0f)
+      continue;
+    
+    cg::Location target_local_location = target_location;
+    simulation_state.GlobalToLocal(actor_id, target_local_location);
+    float target_local_location_x = target_local_location.x; 
+    float target_local_location_y = target_local_location.y;
+    float target_distance = actor_location.Distance(target_location);
+
+    //Filter: vehicles are out of bounds
+    if(target_distance > bound){
+      continue;
+    }
+    bool isFront = target_local_location_x > 0.0f ? true : false ; //REAR is false
+    bool isLongitudinalOverlapped = std::abs(target_local_location_x) < (actor_half_length) ? true : false;
+    
+    WaypointPtr target_waypoint = local_map->GetWaypoint(target_location)->GetWaypoint();
+    crd::RoadId target_road_id = target_waypoint->GetRoadId();
+    crd::SectionId target_section_id = target_waypoint->GetSectionId();
+    crd::LaneId target_lane_id = target_waypoint->GetLaneId();
+    RoadSectionPair key_pair = std::make_pair(target_road_id, target_section_id);
+    
+    if(mid_info.find(key_pair) != mid_info.end() && mid_info.at(key_pair) == target_lane_id){
+      if(isFront && target_distance < leader_distance){
+        potential_leader = main_leader;
+        main_leader = target_id;
+        leader_distance = target_distance;
+      }
+    }
+    else if(hasLeftLane && left_info.find(key_pair) != left_info.end() && left_info.at(key_pair) == target_lane_id){
+      if(isLongitudinalOverlapped){ 
+        if(target_distance < left_distance){
+          leftVeh = target_id;
+          left_distance = target_distance;
+        }
+      }
+      else{
+        if(isFront){
+          if(target_distance < left_front_distance){
+            leftFrontVeh = target_id;
+            left_front_distance = target_distance;
+          }
+        }
+        else{
+          if(target_distance < left_rear_distance){
+            leftRearVeh = target_id;
+            left_rear_distance = target_distance;
+          }
+        }
+      }
+    }
+    else if(hasRightLane && right_info.find(key_pair) != right_info.end() && right_info.at(key_pair) == target_lane_id){
+      if(isLongitudinalOverlapped){ 
+        if(target_distance < right_distance){
+          rightVeh = target_id;
+          right_distance = target_distance;
+        }
+      }
+      else{
+        if(isFront){
+          if(target_distance < right_front_distance){
+            rightFrontVeh = target_id;
+            right_front_distance = target_distance;
+          }
+        }
+        else{
+          if(target_distance < right_rear_distance){
+            rightRearVeh = target_id;
+            right_rear_distance = target_distance;
+          }
+        }
+      }
+    }  
+  }//for-loop
+
+  //Store final result
+  LocalizationData &output = output_array.at(index);
+  output.leader.MainLeader = main_leader;
+  output.leader.PotentialLeader = potential_leader;
+  output.neighbor.LeftVehicle = leftVeh;
+  output.neighbor.RightVehicle = rightVeh;
+  output.neighbor.LeftFrontVehicle = leftFrontVeh;
+  output.neighbor.RightFrontVehicle = rightFrontVeh;
+  output.neighbor.LeftRearVehicle = leftRearVeh;
+  output.neighbor.RightRearVehicle = rightRearVeh;
+
+}
+
+void LocalizationStage::GetLocalRoadInfo(LocalRoadInfo& info, const crd::Lane& lane)
+{  
+  //Add current info
+  crd::LaneId lane_id = lane.GetId();
+  crd::SectionId section_id = lane.GetLaneSection()->GetId();
+  crd::RoadId road_id = lane.GetRoad()->GetId();
+  info.insert({{std::make_pair(road_id, section_id), lane_id}});
+  
+  bool isOtherRoad = false;
+  crd::RoadId flag_road_id = road_id;
+
+  //Add next info 
+  std::vector<crd::Lane*> next_lanes = lane.GetNextLanes();
+  while(!next_lanes.empty() && next_lanes.size() == 1)
+  {
+    crd::Lane* next_lane = next_lanes.at(0);
+    crd::LaneId next_lane_id = next_lane->GetId();
+    crd::SectionId next_section_id = next_lane->GetLaneSection()->GetId();
+    crd::RoadId next_road_id = next_lane->GetRoad()->GetId();
+    if(next_road_id != flag_road_id)
+    {
+      if(isOtherRoad)
+        break;
+      isOtherRoad = true;
+      flag_road_id = next_road_id;
+    }
+    info.insert({{std::make_pair(next_road_id, next_section_id), next_lane_id}});
+    next_lanes = next_lane->GetNextLanes();
+  }
+  
+  isOtherRoad = false;
+  flag_road_id = road_id;
+
+  //Add Previous info
+  std::vector<crd::Lane*> previous_lanes = lane.GetPreviousLanes();
+  while(!previous_lanes.empty() && previous_lanes.size() == 1)
+  {
+    crd::Lane* previous_lane = previous_lanes.at(0);
+    crd::LaneId previous_lane_id = previous_lane->GetId();
+    crd::SectionId previous_section_id = previous_lane->GetLaneSection()->GetId();
+    crd::RoadId previous_road_id = previous_lane->GetRoad()->GetId();
+    if(previous_road_id != flag_road_id)
+    {
+      if(isOtherRoad)
+        break;
+      isOtherRoad = true;
+      flag_road_id = previous_road_id;
+    }
+    info.insert({{std::make_pair(previous_road_id, previous_section_id), previous_lane_id}});
+    previous_lanes = previous_lane->GetPreviousLanes();
+  }
+}
+
+void LocalizationStage::DrawLeader(ActorId actor_id, LocalizationData &output)
+{
+  cg::Vector3D box_size(0.3f,0.3f,0.3f);
+  cg::Location actor_location = simulation_state.GetLocation(actor_id);
+  cg::Rotation actor_rotation = simulation_state.GetRotation(actor_id);
+  actor_location.z += 3.0f;
+  cc::DebugHelper::Color color_ego {255u, 0u, 0u};
+  debug_helper.DrawBox( cg::BoundingBox(actor_location, box_size), actor_rotation, 0.1f, color_ego, 0.01f, true);
+  
+  if(output.leader.MainLeader)
+  {
+    cg::Location first_location = simulation_state.GetLocation(output.leader.MainLeader.get());
+    first_location.z += 3.0f;
+    cc::DebugHelper::Color color_main_leader {0u, 255u, 0u}; //Green
+    debug_helper.DrawBox(cg::BoundingBox(first_location, box_size), actor_rotation, 0.1f, color_main_leader, 0.01f, true);
+    }
+
+  if(output.leader.PotentialLeader)
+  { 
+    cg::Location second_location = simulation_state.GetLocation(output.leader.PotentialLeader.get());
+    second_location.z += 3.0f;
+    cc::DebugHelper::Color color_potential_leader {0u, 0u, 255u}; //Blue
+    debug_helper.DrawBox(cg::BoundingBox(second_location, box_size), actor_rotation, 0.1f, color_potential_leader, 0.01f, true);
+  }
+
+  //Draw range line
+  //const cg::Vector3D actor_heading = simulation_state.GetHeading(actor_id);
+  //cg::Vector3D actor_heading_unit = actor_heading.MakeUnitVector();
+  //cg::Location actor_location_end = actor_location + cg::Location(actor_heading_unit *= MAX_OBSERVING_DISTANCE);
+  //debug_helper.DrawLine(actor_location, actor_location_end, 0.1f, color_ego, 0.3f, true);
+}
+
+void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
+{
+  cg::Vector3D box_size(0.3f,0.3f,0.3f);
+  cg::Rotation actor_rotation = simulation_state.GetRotation(actor_id);
+  
+  if(output.neighbor.LeftVehicle)
+  {
+    cg::Location left_location = simulation_state.GetLocation(output.neighbor.LeftVehicle.get());
+    left_location.z += 3.0f;
+    cc::DebugHelper::Color color_left {255u, 0u, 255u}; //Magenta 洋紅
+    debug_helper.DrawBox( cg::BoundingBox(left_location, box_size), actor_rotation, 0.1f, color_left, 0.3f, true);
+  }
+
+  if(output.neighbor.RightVehicle)
+  { 
+    cg::Location right_location = simulation_state.GetLocation(output.neighbor.RightVehicle.get());
+    right_location.z += 3.0f;
+    cc::DebugHelper::Color color_right {255u, 255u, 0u}; //Yelllow
+    debug_helper.DrawBox( cg::BoundingBox(right_location, box_size), actor_rotation, 0.1f, color_right, 0.3f, true);
+  }
+  
+  if(output.neighbor.RightFrontVehicle)
+  { 
+    cg::Location right_front_location = simulation_state.GetLocation(output.neighbor.RightFrontVehicle.get());
+    right_front_location.z += 3.0f;
+    cc::DebugHelper::Color color_right_front {0u, 0u, 0u}; //Black
+    debug_helper.DrawBox( cg::BoundingBox(right_front_location, box_size), actor_rotation, 0.1f, color_right_front, 0.3f, true);
+  }
+
+  if(output.neighbor.LeftFrontVehicle)
+  { 
+    cg::Location left_front_location = simulation_state.GetLocation(output.neighbor.LeftFrontVehicle.get());
+    left_front_location.z += 3.0f;
+    cc::DebugHelper::Color color_left_front {0u, 255u, 255u}; //blue green
+    debug_helper.DrawBox( cg::BoundingBox(left_front_location, box_size), actor_rotation, 0.1f, color_left_front, 0.3f, true);
+  }
+
+  if(output.neighbor.RightRearVehicle)
+  { 
+    cg::Location right_rear_location = simulation_state.GetLocation(output.neighbor.RightRearVehicle.get());
+    right_rear_location.z += 3.0f;
+    cc::DebugHelper::Color color_right_rear {155u, 55u, 255u}; //Purple
+    debug_helper.DrawBox( cg::BoundingBox(right_rear_location, box_size), actor_rotation, 0.1f, color_right_rear, 0.3f, true);
+  }
+
+  if(output.neighbor.LeftRearVehicle)
+  { 
+    cg::Location left_rear_location = simulation_state.GetLocation(output.neighbor.LeftRearVehicle.get());
+    left_rear_location.z += 3.0f;
+    cc::DebugHelper::Color color_left_rear {255u, 255u, 255u}; //White
+    debug_helper.DrawBox( cg::BoundingBox(left_rear_location, box_size), actor_rotation, 0.1f, color_left_rear, 0.3f, true);
+  }
+
+}
+
 
 } // namespace traffic_manager
 } // namespace carla

@@ -92,5 +92,19 @@ TargetWPInfo GetTargetWaypoint(const Buffer &waypoint_buffer, const float &targe
   return std::make_pair(target_waypoint, index);
 }
 
+
+/////MTS Extension
+float VectorDotProduct(const cg::Vector3D &heading_vector, 
+                       const cg::Vector3D &target_vector){
+  cg::Vector3D next_vector = target_vector;
+  next_vector.z = 0.0f;
+  next_vector = next_vector.MakeSafeUnitVector(EPSILON);
+  cg::Vector3D heading_vector_flat(heading_vector.x, heading_vector.y, 0);
+  heading_vector_flat = heading_vector_flat.MakeSafeUnitVector(EPSILON);
+  const float dot_product = cg::Math::Dot(next_vector, heading_vector_flat);
+  return dot_product;
+}
+
+
 } // namespace traffic_manager
 } // namespace carla

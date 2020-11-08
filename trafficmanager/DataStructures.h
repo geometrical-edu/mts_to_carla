@@ -33,10 +33,65 @@ using BufferMap = std::unordered_map<carla::ActorId, Buffer>;
 using TimeInstance = chr::time_point<chr::system_clock, chr::nanoseconds>;
 using TLS = carla::rpc::TrafficLightState;
 
+
+/////MTS Extension
+
+struct MTS_Leader{
+  boost::optional<ActorId> MainLeader;
+  boost::optional<ActorId> PotentialLeader;
+};
+
+struct MTS_Neighbor
+{
+  boost::optional<ActorId> LeftVehicle;
+  boost::optional<ActorId> RightVehicle;
+  boost::optional<ActorId> LeftFrontVehicle;
+  boost::optional<ActorId> RightFrontVehicle;
+  boost::optional<ActorId> LeftRearVehicle;
+  boost::optional<ActorId> RightRearVehicle;
+};
+
+struct MTS_Region
+{
+  boost::optional<ActorId> leftBorderVehicle;
+  boost::optional<ActorId> rightBorderVehicle;
+  std::vector<boost::optional<ActorId>> frontVehicles;
+  std::vector<boost::optional<ActorId>> rearVehicles;
+  
+  cg::Location leftBorder;
+  cg::Location rightBorder;
+  cg::Location location;
+  //cg::Rotation rotation;
+
+  float gap;
+  float width;
+  float maxPassingSpeed;
+  float safety;
+  float preference;
+};
+
+struct MTS_SituationData 
+{
+  std::vector<MTS_Region>	CandidateRegions;
+  MTS_Region CurrentRegion;
+  bool SpaceOriented = false;
+  float safety;
+  float desiredOffset;
+};
+
+
+
+
 struct LocalizationData {
   SimpleWaypointPtr junction_end_point;
   SimpleWaypointPtr safe_point;
   bool is_at_junction_entrance;
+
+  /////MTS Extension
+
+  MTS_Leader leader;
+  MTS_Neighbor neighbor;
+  MTS_SituationData situation;
 };
 using LocalizationFrame = std::vector<LocalizationData>;
 
@@ -66,6 +121,7 @@ struct StateEntry {
   float deviation_integral;
   float velocity_integral;
 };
+
 
 } // namespace traffic_manager
 } // namespace carla

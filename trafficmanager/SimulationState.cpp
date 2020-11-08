@@ -79,5 +79,20 @@ cg::Vector3D SimulationState::GetDimensions(ActorId actor_id) const {
   return cg::Vector3D(attributes.half_length, attributes.half_width, attributes.half_height);
 }
 
+/////MTS Extension
+void SimulationState::GlobalToLocal(const ActorId actor_id, cg::Location &location) const{
+  //use actor_id to get transform matrix (actor as origin of coordinate)
+  cg::Transform transform(kinematic_state_map.at(actor_id).location,
+                          kinematic_state_map.at(actor_id).rotation);
+  transform.InverseTransformPoint(location);
+}
+
+void SimulationState::LocalToGlobal(const ActorId actor_id, cg::Location &location) const{
+  cg::Transform transform(kinematic_state_map.at(actor_id).location,
+                          kinematic_state_map.at(actor_id).rotation);
+  transform.TransformPoint(location);
+}
+
+
 } // namespace  traffic_manager
 } // namespace carla

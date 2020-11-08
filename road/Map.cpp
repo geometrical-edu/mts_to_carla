@@ -1100,5 +1100,20 @@ namespace road {
     return out_mesh;
   }
 
+
+  /////MTS Extension
+  
+  const Road &Map::GetRoad(Waypoint waypoint) const {
+    return _data.GetRoad(waypoint.road_id);
+  }
+
+  const Lane &Map::GetLaneById(const RoadId road_id, SectionId section_id, LaneId lane_id) const {
+    return _data.GetRoad(road_id).GetLaneById(section_id, lane_id);
+  }
+
+  const Road &Map::GetRoadById(const RoadId id) const {
+    return _data.GetRoad(id);
+  }
+
 } // namespace road
 } // namespace carla

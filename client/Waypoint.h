@@ -100,6 +100,13 @@ namespace client {
     std::vector<SharedPtr<Landmark>> GetLandmarksOfTypeInDistance(
         double distance, std::string filter_type, bool stop_at_junction = false) const;
 
+    
+    /////MTS Extension
+
+    road::element::Waypoint GetRoadWaypoint() const{
+      return _waypoint;
+    }
+
   private:
 
     friend class Map;
