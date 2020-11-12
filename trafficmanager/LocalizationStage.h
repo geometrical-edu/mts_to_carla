@@ -87,12 +87,15 @@ public:
 
   /////MTS Extension
 
+  void MTS_Update(const unsigned long index);
+  
   void MTS_SurroundingUpdate(const unsigned long index);
   void GetLocalRoadInfo(LocalRoadInfo& info, const crd::Lane& lane);
-
   void DrawLeader(ActorId actor_id, LocalizationData &output);
   void DrawNeighbor(ActorId actor_id, LocalizationData &output);
 
+  void MTS_RegionUpdate(const unsigned long index);
+  void DrawRegion(ActorId actor_id, LocalizationData &output);
 
 };
 

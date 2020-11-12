@@ -79,6 +79,7 @@ cg::Vector3D SimulationState::GetDimensions(ActorId actor_id) const {
   return cg::Vector3D(attributes.half_length, attributes.half_width, attributes.half_height);
 }
 
+
 /////MTS Extension
 void SimulationState::GlobalToLocal(const ActorId actor_id, cg::Location &location) const{
   //use actor_id to get transform matrix (actor as origin of coordinate)
@@ -92,6 +93,64 @@ void SimulationState::LocalToGlobal(const ActorId actor_id, cg::Location &locati
                           kinematic_state_map.at(actor_id).rotation);
   transform.TransformPoint(location);
 }
+
+float SimulationState::GetGap(const ActorId actor_id, const ActorId target_id) const{
+  float halfPredLen = static_attribute_map.at(target_id).half_length; //pred->getCurrentController()->getLength() / 2.0f;
+	float halfVehLen = static_attribute_map.at(actor_id).half_length; //getLength() / 2.0f;
+	float relativeOffset = GetRelativeOffset(actor_id, target_id);
+	float gap = relativeOffset - (halfPredLen + halfVehLen);
+	return gap;
+}
+
+float SimulationState::GetRelativeOffset(const ActorId actor_id, const ActorId target_id) const{
+  cg::Location target_location = kinematic_state_map.at(target_id).location;
+  GlobalToLocal(actor_id, target_location);
+  return target_location.x;
+}
+
+float SimulationState::GetDynamicWidth(const ActorId actor_id) const{
+  float yaw_angle = kinematic_state_map.at(actor_id).rotation.yaw;
+  float width = static_attribute_map.at(actor_id).half_width * 2;
+
+  if(yaw_angle == 0)
+    return width;
+
+  float length = static_attribute_map.at(actor_id).half_length * 2;
+  float diagonal_length = sqrt(length * length + width * width);
+  float base_angle = acos(length / diagonal_length);
+  float angle_1 = std::abs(yaw_angle + base_angle);
+  float angle_2 = std::abs(yaw_angle - base_angle);
+
+  if(yaw_angle > 0)
+    return diagonal_length * sin(angle_1);
+  
+  return diagonal_length * sin(angle_2);
+}
+
+float SimulationState::GetDynamicLength(const ActorId actor_id) const{
+  float yaw_angle = kinematic_state_map.at(actor_id).rotation.yaw;
+  float length = static_attribute_map.at(actor_id).half_length * 2;
+
+  if(yaw_angle == 0)
+    return length;
+
+  float width = static_attribute_map.at(actor_id).half_width * 2;
+  float diagonal_length = sqrt(length * length + width * width);
+  float base_angle = acos(length / diagonal_length);
+  float angle_1 = std::abs(yaw_angle + base_angle);
+  float angle_2 = std::abs(yaw_angle - base_angle);
+
+  if(yaw_angle > 0)
+    return diagonal_length * cos(angle_2);
+ 
+  return diagonal_length * cos(angle_1);
+}
+
+float SimulationState::GetLateralSeparation(const ActorId actor_id, const ActorId target_id) const{
+  cg::Location target_location = kinematic_state_map.at(actor_id).location;
+  GlobalToLocal(actor_id, target_location);
+  return -target_location.y;
+} 
 
 
 } // namespace  traffic_manager

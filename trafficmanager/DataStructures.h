@@ -80,8 +80,6 @@ struct MTS_SituationData
 };
 
 
-
-
 struct LocalizationData {
   SimpleWaypointPtr junction_end_point;
   SimpleWaypointPtr safe_point;

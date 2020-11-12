@@ -94,6 +94,14 @@ public :
   /////MTS Extension
   void GlobalToLocal(const ActorId actor_id, cg::Location &location) const;
   void LocalToGlobal(const ActorId actor_id, cg::Location &location) const;
+
+  float GetGap(const ActorId actor_id, const ActorId target_id) const;
+  float GetRelativeOffset(const ActorId actor_id, const ActorId target_id) const;
+
+  float GetDynamicWidth(const ActorId actor_id) const;
+  float GetDynamicLength(const ActorId actor_id) const;
+  float GetLateralSeparation(ActorId actor_id, ActorId target_id) const;
+  
   
 };
 

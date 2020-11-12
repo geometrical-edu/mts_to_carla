@@ -105,6 +105,11 @@ void LocalizationStage::Update(const unsigned long index) {
   }
 
   // Assign a lane change.
+
+
+  /////MTS TODO
+
+
   const ChangeLaneInfo lane_change_info = parameters.GetForceLaneChange(actor_id);
   bool force_lane_change = lane_change_info.change_lane;
   bool lane_change_direction = lane_change_info.direction;
@@ -204,11 +209,13 @@ void LocalizationStage::Update(const unsigned long index) {
 
   /////MTS Extension
 
+  MTS_SurroundingUpdate(index);
+  MTS_RegionUpdate(index);
   if (actor_id == vehicle_id_list.at(0))
   {
-    MTS_SurroundingUpdate(index);
     DrawLeader(actor_id, output);
     DrawNeighbor(actor_id, output);
+    DrawRegion(actor_id, output);
   }
 
 }
@@ -437,6 +444,19 @@ void LocalizationStage::DrawBuffer(Buffer &buffer) {
 
 /////MTS Extension
 
+void LocalizationStage::MTS_Update(const unsigned long index)
+{
+  LocalizationData &output = output_array.at(index);
+  const ActorId actor_id = vehicle_id_list.at(index);
+  const cg::Location actor_location = simulation_state.GetLocation(actor_id);
+  SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(actor_location);
+  SimpleWaypointPtr actor_left_waypoint = actor_waypoint->GetLeftWaypoint();
+  SimpleWaypointPtr actor_right_waypoint = actor_waypoint->GetRightWaypoint();
+  
+  MTS_SurroundingUpdate(index);
+}
+
+
 void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
 {
   const ActorId actor_id = vehicle_id_list.at(index);
@@ -473,8 +493,8 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
   //Road information
   LocalRoadInfo mid_info, left_info, right_info;
   SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(actor_location);
-  SimpleWaypointPtr actor_left_waypoint = actor_waypoint->GetLeftWaypoint();
-  SimpleWaypointPtr actor_right_waypoint = actor_waypoint->GetRightWaypoint();
+  SimpleWaypointPtr left_lane_waypoint = actor_waypoint->GetLeftWaypoint();
+  SimpleWaypointPtr right_lane_waypoint = actor_waypoint->GetRightWaypoint();
   
   bool hasLeftLane = false;
   bool hasRightLane = false;
@@ -488,12 +508,12 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
     actor_road_id = actor_lane.GetRoad()->GetId();
     actor_road_length = actor_lane.GetRoad()->GetLength();
     GetLocalRoadInfo(mid_info, actor_lane);
-    if(actor_left_waypoint != nullptr){
+    if(left_lane_waypoint != nullptr){
       hasLeftLane = true;
       const crd::Lane& left_lane = local_map->GetLeftLane(actor_waypoint);
       GetLocalRoadInfo(left_info, left_lane);
     }
-    if(actor_right_waypoint != nullptr){
+    if(right_lane_waypoint != nullptr){
       hasRightLane = true;
       const crd::Lane& right_lane = local_map->GetRightLane(actor_waypoint);
       GetLocalRoadInfo(right_info, right_lane);
@@ -739,6 +759,145 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   }
 
 }
+
+
+void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
+{ 
+  const ActorId actor_id = vehicle_id_list.at(index);
+  const cg::Location actor_location = simulation_state.GetLocation(actor_id);
+  //+Duplcate
+  float actor_half_length = simulation_state.GetDimensions(actor_id).x;
+
+  LocalizationData &output = output_array.at(index);
+  MTS_Leader leader = output.leader;
+  MTS_Neighbor neighbor = output.neighbor;
+  
+  //Current region.
+  //+Duplicate
+  SimpleWaypointPtr current_waypoint = local_map->GetWaypoint(actor_location);
+  // MTS_Region current_region = GetRegion(actor_id, main_leader, current_waypoint, 0.0); // middle direction = 0
+  MTS_Region current_region;
+  float lane_width = float(current_waypoint->GetWaypoint()->GetLaneWidth());
+  float half_lane_width = lane_width / 2.0f;
+  
+  float gap = MAX_OBSERVING_DISTANCE;
+  float maxSpeed = simulation_state.GetSpeedLimit(actor_id);
+  if(leader.MainLeader)
+  {
+    //-Add func
+    ActorId main_leader = leader.MainLeader.get();
+    gap = simulation_state.GetGap(actor_id, main_leader);
+    maxSpeed = std::min(simulation_state.GetVelocity(main_leader).Length(), maxSpeed); // local
+  }
+  current_region.gap = gap;
+  current_region.maxPassingSpeed = maxSpeed;
+
+  cg::Location target = cg::Location(gap / 2.0f + actor_half_length, 0.0f, 0.0f);
+  cg::Location left_border = cg::Location(gap / 2.0f + actor_half_length, -half_lane_width, 0.0f);
+  cg::Location right_border = cg::Location(gap / 2.0f + actor_half_length, half_lane_width, 0.0f);
+  
+  simulation_state.LocalToGlobal(actor_id, target);
+  simulation_state.LocalToGlobal(actor_id, left_border);
+  simulation_state.LocalToGlobal(actor_id, right_border);
+  
+  current_region.location = target; //now is global, need to trans to local?
+  current_region.leftBorder = left_border;
+  current_region.rightBorder = right_border;
+  current_region.width = lane_width;
+  current_region.leftBorderVehicle = neighbor.LeftVehicle; 
+  current_region.rightBorderVehicle = neighbor.RightVehicle;
+
+  //Left region.
+  //+Duplicate
+  SimpleWaypointPtr left_lane_waypoint = current_waypoint->GetLeftWaypoint(); 
+  MTS_Region left_region;
+
+  if(left_lane_waypoint)
+  {  
+    //left_region = GetRegion(actor_id, leftFrontVeh, left_lane, -1.0); // left direction = -1
+    float left_gap = MAX_OBSERVING_DISTANCE;
+    float left_max_speed = maxSpeed;
+    if(neighbor.LeftFrontVehicle)
+    {
+      //-Add func
+      ActorId leftFrontVeh = neighbor.LeftFrontVehicle.get();
+      left_gap = simulation_state.GetGap(actor_id, leftFrontVeh);
+      left_max_speed = simulation_state.GetVelocity(leftFrontVeh).Length();
+    }
+    left_region.gap = left_gap;
+    left_region.maxPassingSpeed = left_max_speed;
+
+    cg::Location left_target = cg::Location(left_gap / 2.0f + actor_half_length, -lane_width, 0.0f);
+    cg::Location left_left_border = cg::Location(gap / 2.0f + actor_half_length, -lane_width - half_lane_width, 0.0f);
+    cg::Location left_right_border = cg::Location(gap / 2.0f + actor_half_length, lane_width + half_lane_width, 0.0f);
+    
+    simulation_state.LocalToGlobal(actor_id, left_target);
+    simulation_state.LocalToGlobal(actor_id, left_left_border);
+    simulation_state.LocalToGlobal(actor_id, left_right_border);
+
+    left_region.location = left_target; //left_lane->GetLocation(); //offset -> location
+    left_region.leftBorder = left_left_border;
+    left_region.rightBorder = left_right_border;
+    left_region.width = lane_width;
+    left_region.rightBorderVehicle = actor_id;
+  }
+  
+  //Right region.
+  //+Duplicate
+  SimpleWaypointPtr right_lane_waypoint = current_waypoint->GetRightWaypoint();
+  MTS_Region right_region;
+
+  if(right_lane_waypoint)
+  {  
+    //right_region = GetRegion(actor_id, rightFrontVeh, right_lane, 1.0); // right direction = 1
+    float right_gap = MAX_OBSERVING_DISTANCE;
+    float right_max_speed = maxSpeed;
+
+    if(neighbor.RightFrontVehicle)
+    {
+      //-Add func
+      ActorId rightFrontVeh = neighbor.RightFrontVehicle.get();
+      right_gap = simulation_state.GetGap(actor_id, rightFrontVeh);
+      right_max_speed = simulation_state.GetVelocity(rightFrontVeh).Length();
+    }
+    right_region.gap = right_gap;
+    right_region.maxPassingSpeed = right_max_speed;
+
+    cg::Location right_target = cg::Location(right_gap / 2.0f + actor_half_length, lane_width, 0.0f);
+    cg::Location right_left_border = cg::Location(gap / 2.0f + actor_half_length, -lane_width - half_lane_width, 0.0f);
+    cg::Location right_right_border = cg::Location(gap / 2.0f + actor_half_length, lane_width + half_lane_width, 0.0f);
+    
+    simulation_state.LocalToGlobal(actor_id, right_target);
+    simulation_state.LocalToGlobal(actor_id, right_left_border);
+    simulation_state.LocalToGlobal(actor_id, right_right_border);
+
+    right_region.location = right_target;//left_lane->GetLocation(); //local
+    right_region.leftBorder = right_left_border;
+    right_region.rightBorder = right_right_border;
+    right_region.width = lane_width;
+    right_region.leftBorderVehicle = actor_id;
+  }
+
+  //LocalizationData &output = output_array.at(index);
+  output.situation.CurrentRegion = current_region;
+  output.situation.CandidateRegions.push_back(current_region);
+  output.situation.CandidateRegions.push_back(left_region);
+  output.situation.CandidateRegions.push_back(right_region);
+}
+
+void LocalizationStage::DrawRegion(ActorId actor_id, LocalizationData &output)
+{
+  for(auto &region : output.situation.CandidateRegions)
+  {
+    cg::Vector3D box_size(region.gap / 2.0f, region.width / 2.0f, 0.0f);
+    cg::Location location = region.location;
+    cg::Rotation rotation = simulation_state.GetRotation(actor_id);
+    location.z += 0.5f;
+    cc::DebugHelper::Color color {255u, 0u, 0u};
+    debug_helper.DrawBox(cg::BoundingBox(location, box_size), rotation, 0.1f, color, 0.3f, true);
+  }
+}
+
 
 
 } // namespace traffic_manager
