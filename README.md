@@ -1,6 +1,12 @@
 ### Readme
 Merge MTS to CARLA 0.9.10 
 
+### Test Environment
+* OS: Ubuntu 18.04
+* CPU: Intel(R) Core(TM) i5-10500 CPU @ 3.10GHz
+* GPU: GeForce GTX 1070
+* RAM: 16GB
+
 ### Get Start 
 1. ```git clone``` whole repository to local file system
 2. Go to the root directory of CARLA: ```user_path/carla```
