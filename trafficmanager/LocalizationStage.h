@@ -86,8 +86,6 @@ public:
 
 
   /////MTS Extension
-
-  void MTS_Update(const unsigned long index);
   
   void MTS_SurroundingUpdate(const unsigned long index);
   void GetLocalRoadInfo(LocalRoadInfo& info, const crd::Lane& lane);
@@ -96,6 +94,15 @@ public:
 
   void MTS_RegionUpdate(const unsigned long index);
   void DrawRegion(ActorId actor_id, LocalizationData &output);
+  void DrawRegionBuffer(ActorId actor_id, LocalizationData &output, Buffer &buffer);
+
+  float ComputeBestLateralOffset(ActorId actor_id, const unsigned long index);
+  bool CheckLeftSafety(ActorId actor_id, float desired_offset , float *safe_offset , MTS_Region region, LocalizationData &localization);
+  bool CheckRightSafety(ActorId actor_id, float desired_offset , float *safe_offset , MTS_Region region, LocalizationData &localization);
+  bool CheckSafety(ActorId actor_id, ActorId target_id, float moveSpeed, float moveTime, float* safeTime);
+  float GetLateralTime(float desired_lateral_offset, ActorId actor_id, LocalizationData &localization);
+  float GetLongitudinalTime(ActorId actor_id, LocalizationData &localization);
+  float GetGapToStopLine(ActorId actor_id);
 
 };
 

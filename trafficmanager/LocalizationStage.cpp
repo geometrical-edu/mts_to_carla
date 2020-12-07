@@ -3,6 +3,8 @@
 
 #include "carla/trafficmanager/LocalizationStage.h"
 
+#include <fstream>
+
 namespace carla {
 namespace traffic_manager {
 
@@ -11,6 +13,7 @@ using namespace constants::LaneChange;
 using namespace constants::WaypointSelection;
 
 /////MTS Extension
+//int iteration_num = 0;
 using namespace constants::MTSCar;
 
 
@@ -106,15 +109,61 @@ void LocalizationStage::Update(const unsigned long index) {
 
   // Assign a lane change.
 
-
   /////MTS TODO
+  bool MTS_ON = false;
+  bool force = false;
+  bool direction = false;
 
-
+  MTS_SurroundingUpdate(index);
+  
+  /////MTS Modify
+  if(MTS_ON)
+  {
+    MTS_SurroundingUpdate(index);
+    MTS_RegionUpdate(index);
+    float best_offset = ComputeBestLateralOffset(actor_id, index);
+    const SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(vehicle_location);
+    float lane_half_width = float(actor_waypoint->GetWaypoint()->GetLaneWidth()) / 2.0;
+    
+    /*
+    if(actor_id == vehicle_id_list.at(0)){
+      std::cout<<"best_offset: "<<best_offset<<"\n";
+      std::cout<<"lane_half_width: "<<lane_half_width<<"\n";
+    }
+    */
+    
+    if (best_offset > lane_half_width){
+      force = true;
+      direction = true;
+      
+      /*
+      if(actor_id == vehicle_id_list.at(0)){
+        std::cout<<"Right: best_offset > lane_half_width\n";
+        std::cout<<"force: "<<force<<"\n";
+        std::cout<<"direction: "<<direction<<"\n";
+      }
+      */
+    }
+    else if(best_offset < -lane_half_width){
+      force = true;
+      direction = false;
+      
+      /*
+      if(actor_id == vehicle_id_list.at(0)){
+        std::cout<<"Left: best_offset < -lane_half_width\n";
+        std::cout<<"force: "<<force<<"\n";
+        std::cout<<"direction: "<<direction<<"\n";
+      }
+      */
+    }
+  }
+  
+  /////MTS Modify
   const ChangeLaneInfo lane_change_info = parameters.GetForceLaneChange(actor_id);
-  bool force_lane_change = lane_change_info.change_lane;
-  bool lane_change_direction = lane_change_info.direction;
+  bool force_lane_change = MTS_ON ? force : lane_change_info.change_lane;
+  bool lane_change_direction = MTS_ON ? direction : lane_change_info.direction;
 
-  if (!force_lane_change) {
+  if (!MTS_ON && !force_lane_change) {
     float perc_keep_right = parameters.GetKeepRightPercentage(actor_id);
     if (perc_keep_right >= 0.0f && perc_keep_right >= random_devices.at(actor_id).next()) {
       force_lane_change = true;
@@ -131,9 +180,21 @@ void LocalizationStage::Update(const unsigned long index) {
     float distance_frm_previous = cg::Math::DistanceSquared(last_lane_change_location.at(actor_id), vehicle_location);
     done_with_previous_lane_change = distance_frm_previous > lane_change_distance;
   }
-  bool auto_or_force_lane_change = parameters.GetAutoLaneChange(actor_id) || force_lane_change;
+  
+  /////MTS Modify
+  bool auto_or_force_lane_change = MTS_ON ? force_lane_change : (parameters.GetAutoLaneChange(actor_id) || force_lane_change);
   bool front_waypoint_not_junction = !front_waypoint->CheckJunction();
 
+  /*
+  if(actor_id == vehicle_id_list.at(0)){
+        std::cout<<"auto_or_force_lane_change: "<<auto_or_force_lane_change<<"\n";
+        std::cout<<"force_lane_change: "<<force_lane_change<<"\n";
+        std::cout<<"lane_change_direction: "<<lane_change_direction<<"\n";
+        std::cout<<"=====================================================\n";
+  }
+  */
+  
+  
   if (auto_or_force_lane_change
       && front_waypoint_not_junction
       && (recently_not_executed_lane_change || done_with_previous_lane_change)) {
@@ -209,14 +270,19 @@ void LocalizationStage::Update(const unsigned long index) {
 
   /////MTS Extension
 
-  MTS_SurroundingUpdate(index);
-  MTS_RegionUpdate(index);
+  // MTS_SurroundingUpdate(index);
+  // MTS_RegionUpdate(index);
+  
+  /*
   if (actor_id == vehicle_id_list.at(0))
   {
     DrawLeader(actor_id, output);
     DrawNeighbor(actor_id, output);
-    DrawRegion(actor_id, output);
+    DrawRegionBuffer(actor_id, output, waypoint_buffer);
+    //DrawRegion(actor_id, output);
+    //DrawBuffer(waypoint_buffer);
   }
+  */
 
 }
 
@@ -407,8 +473,20 @@ SimpleWaypointPtr LocalizationStage::AssignLaneChange(const ActorId actor_id,
     } else if (force) {
       if (direction && right_waypoint != nullptr) {
         change_over_point = right_waypoint;
+        
+        /*
+        if (actor_id == vehicle_id_list.at(0)){
+          std::cout<<"Assign Lane Change: RIGHT\n";
+        }
+        */
       } else if (!direction && left_waypoint != nullptr) {
         change_over_point = left_waypoint;
+        
+        /*
+        if (actor_id == vehicle_id_list.at(0)){
+          std::cout<<"Assign Lane Change: LEFT\n";
+        }
+        */
       }
     }
 
@@ -443,19 +521,6 @@ void LocalizationStage::DrawBuffer(Buffer &buffer) {
 
 
 /////MTS Extension
-
-void LocalizationStage::MTS_Update(const unsigned long index)
-{
-  LocalizationData &output = output_array.at(index);
-  const ActorId actor_id = vehicle_id_list.at(index);
-  const cg::Location actor_location = simulation_state.GetLocation(actor_id);
-  SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(actor_location);
-  SimpleWaypointPtr actor_left_waypoint = actor_waypoint->GetLeftWaypoint();
-  SimpleWaypointPtr actor_right_waypoint = actor_waypoint->GetRightWaypoint();
-  
-  MTS_SurroundingUpdate(index);
-}
-
 
 void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
 {
@@ -500,11 +565,20 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
   bool hasRightLane = false;
   bool isJunction = actor_waypoint->CheckJunction();
 
+  bool ST = false;
+
   
   crd::RoadId actor_road_id;
   double actor_road_length;
   if(!isJunction){
     const crd::Lane& actor_lane = local_map->GetLane(actor_waypoint);
+
+    /*
+    if (actor_id == vehicle_id_list.at(0)){
+      ST = actor_lane.IsStraight();
+    }
+    */
+
     actor_road_id = actor_lane.GetRoad()->GetId();
     actor_road_length = actor_lane.GetRoad()->GetLength();
     GetLocalRoadInfo(mid_info, actor_lane);
@@ -607,6 +681,19 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
     }  
   }//for-loop
 
+  
+  /*
+  if (actor_id == vehicle_id_list.at(0)){
+    iteration_num++;
+    if(ST){
+      std::fstream file;
+      file.open("/home/stephen/Desktop/distance.txt", std::ios::app);
+      file << iteration_num << "\n";
+      file << leader_distance << "\n";
+    }
+  }
+  */
+
   //Store final result
   LocalizationData &output = output_array.at(index);
   output.leader.MainLeader = main_leader;
@@ -679,14 +766,14 @@ void LocalizationStage::DrawLeader(ActorId actor_id, LocalizationData &output)
   cg::Location actor_location = simulation_state.GetLocation(actor_id);
   cg::Rotation actor_rotation = simulation_state.GetRotation(actor_id);
   actor_location.z += 3.0f;
-  cc::DebugHelper::Color color_ego {255u, 0u, 0u};
+  cc::DebugHelper::Color color_ego {255u, 0u, 0u}; //Red
   debug_helper.DrawBox( cg::BoundingBox(actor_location, box_size), actor_rotation, 0.1f, color_ego, 0.01f, true);
   
   if(output.leader.MainLeader)
   {
     cg::Location first_location = simulation_state.GetLocation(output.leader.MainLeader.get());
     first_location.z += 3.0f;
-    cc::DebugHelper::Color color_main_leader {0u, 255u, 0u}; //Green
+    cc::DebugHelper::Color color_main_leader {255u, 0u, 255u}; //Magenta 洋紅
     debug_helper.DrawBox(cg::BoundingBox(first_location, box_size), actor_rotation, 0.1f, color_main_leader, 0.01f, true);
     }
 
@@ -694,7 +781,7 @@ void LocalizationStage::DrawLeader(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location second_location = simulation_state.GetLocation(output.leader.PotentialLeader.get());
     second_location.z += 3.0f;
-    cc::DebugHelper::Color color_potential_leader {0u, 0u, 255u}; //Blue
+    cc::DebugHelper::Color color_potential_leader {255u, 150u, 150u}; //Light pink
     debug_helper.DrawBox(cg::BoundingBox(second_location, box_size), actor_rotation, 0.1f, color_potential_leader, 0.01f, true);
   }
 
@@ -714,7 +801,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   {
     cg::Location left_location = simulation_state.GetLocation(output.neighbor.LeftVehicle.get());
     left_location.z += 3.0f;
-    cc::DebugHelper::Color color_left {255u, 0u, 255u}; //Magenta 洋紅
+    cc::DebugHelper::Color color_left {0u, 255u, 0u}; //Green
     debug_helper.DrawBox( cg::BoundingBox(left_location, box_size), actor_rotation, 0.1f, color_left, 0.3f, true);
   }
 
@@ -722,7 +809,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location right_location = simulation_state.GetLocation(output.neighbor.RightVehicle.get());
     right_location.z += 3.0f;
-    cc::DebugHelper::Color color_right {255u, 255u, 0u}; //Yelllow
+    cc::DebugHelper::Color color_right {0u, 0u, 255u}; //Blue
     debug_helper.DrawBox( cg::BoundingBox(right_location, box_size), actor_rotation, 0.1f, color_right, 0.3f, true);
   }
   
@@ -730,7 +817,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location right_front_location = simulation_state.GetLocation(output.neighbor.RightFrontVehicle.get());
     right_front_location.z += 3.0f;
-    cc::DebugHelper::Color color_right_front {0u, 0u, 0u}; //Black
+    cc::DebugHelper::Color color_right_front {0u, 150u, 255u}; //lught blue
     debug_helper.DrawBox( cg::BoundingBox(right_front_location, box_size), actor_rotation, 0.1f, color_right_front, 0.3f, true);
   }
 
@@ -738,7 +825,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location left_front_location = simulation_state.GetLocation(output.neighbor.LeftFrontVehicle.get());
     left_front_location.z += 3.0f;
-    cc::DebugHelper::Color color_left_front {0u, 255u, 255u}; //blue green
+    cc::DebugHelper::Color color_left_front {150u, 255u, 0u}; //light green
     debug_helper.DrawBox( cg::BoundingBox(left_front_location, box_size), actor_rotation, 0.1f, color_left_front, 0.3f, true);
   }
 
@@ -746,7 +833,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location right_rear_location = simulation_state.GetLocation(output.neighbor.RightRearVehicle.get());
     right_rear_location.z += 3.0f;
-    cc::DebugHelper::Color color_right_rear {155u, 55u, 255u}; //Purple
+    cc::DebugHelper::Color color_right_rear {0u, 0u, 70u}; //dark blue
     debug_helper.DrawBox( cg::BoundingBox(right_rear_location, box_size), actor_rotation, 0.1f, color_right_rear, 0.3f, true);
   }
 
@@ -754,7 +841,7 @@ void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
   { 
     cg::Location left_rear_location = simulation_state.GetLocation(output.neighbor.LeftRearVehicle.get());
     left_rear_location.z += 3.0f;
-    cc::DebugHelper::Color color_left_rear {255u, 255u, 255u}; //White
+    cc::DebugHelper::Color color_left_rear {0u, 70u, 0u}; //dark green
     debug_helper.DrawBox( cg::BoundingBox(left_rear_location, box_size), actor_rotation, 0.1f, color_left_rear, 0.3f, true);
   }
 
@@ -898,6 +985,526 @@ void LocalizationStage::DrawRegion(ActorId actor_id, LocalizationData &output)
   }
 }
 
+void LocalizationStage::DrawRegionBuffer(ActorId actor_id, LocalizationData &output, Buffer &buffer)
+{
+  float current_max = MAX_OBSERVING_DISTANCE;
+  float left_max = MAX_OBSERVING_DISTANCE;
+  float right_max = MAX_OBSERVING_DISTANCE;
+
+  float current_len = 0.0f;
+  float left_len = 0.0f;
+  float right_len = 0.0f;
+
+  bool current_draw = true;
+  bool left_draw = true;
+  bool right_draw = true;
+
+  const cg::Location actor_location = simulation_state.GetLocation(actor_id);
+  if(output.leader.MainLeader){
+    ActorId main_id = output.leader.MainLeader.get();
+    current_max = actor_location.Distance(simulation_state.GetLocation(main_id));
+  }
+  if(output.neighbor.LeftFrontVehicle){
+    ActorId left_id = output.neighbor.LeftFrontVehicle.get();
+    left_max = actor_location.Distance(simulation_state.GetLocation(left_id));
+  } 
+  if(output.neighbor.RightFrontVehicle){
+    ActorId right_id = output.neighbor.RightFrontVehicle.get();
+    right_max = actor_location.Distance(simulation_state.GetLocation(right_id));
+  }
+
+  uint64_t buffer_size = buffer.size();
+  uint64_t step_size =  buffer_size/30u;
+
+  WaypointPtr current_waypoint = buffer.at(0)->GetWaypoint();
+  float lane_width = float(current_waypoint->GetLaneWidth());
+  left_draw = buffer.at(0)->GetLeftWaypoint() == nullptr ? false : true;
+  right_draw = buffer.at(0)->GetRightWaypoint() == nullptr ? false : true;
+
+  cc::DebugHelper::Color color {255u, 0u, 0u};
+  cg::Location two_meters_up = cg::Location(0.0f, 0.0f, 2.0f);
+
+  for (uint64_t i = 0u; i + step_size < buffer_size; i += step_size) {
+    if (buffer.at(i)->CheckJunction() && buffer.at(i + step_size)->CheckJunction()) 
+      break;
+    if (!current_draw && !left_draw && !right_draw)
+      break;
+
+    cg::Vector3D fv = buffer.at(i)->GetForwardVector();
+    std::swap(fv.x,fv.y);
+    fv.x = -fv.x;
+    cg::Location orth = cg::Location(fv);
+
+    cg::Location current_position_inner = buffer.at(i)->GetLocation() - cg::Location(0.5f * lane_width * orth);
+    cg::Location next_current_position_inner = buffer.at(i + step_size)->GetLocation() - cg::Location(0.5f * lane_width * orth);
+    cg::Location current_position_outer = buffer.at(i)->GetLocation() + cg::Location(0.5f * lane_width * orth);
+    cg::Location next_current_position_outer = buffer.at(i + step_size)->GetLocation() + cg::Location(0.5f * lane_width * orth);
+    cg::Location left_position = buffer.at(i)->GetLocation() - cg::Location(1.5f * lane_width * orth);
+    cg::Location next_left_position = buffer.at(i + step_size)->GetLocation() - cg::Location(1.5f * lane_width * orth);
+    cg::Location right_position = buffer.at(i)->GetLocation() + cg::Location(1.5f * lane_width * orth);
+    cg::Location next_right_position = buffer.at(i + step_size)->GetLocation() + cg::Location(1.5f * lane_width * orth);
+    
+
+    current_len += current_position_outer.Distance(next_current_position_outer);
+    left_len += left_position.Distance(next_left_position);
+    right_len += right_position.Distance(next_right_position);
+
+    
+    if(current_len > current_max && current_draw){
+      current_draw = false;
+      debug_helper.DrawLine(current_position_inner + two_meters_up,
+                          current_position_outer + two_meters_up,
+                          0.2f, color, 0.05f);
+    }
+    if(left_len > left_max && left_draw){
+      left_draw = false;
+      debug_helper.DrawLine(current_position_inner + two_meters_up,
+                          left_position + two_meters_up,
+                          0.2f, color, 0.05f);
+    }
+    if(right_len > right_max && right_draw){
+      right_draw = false;
+      debug_helper.DrawLine(current_position_outer + two_meters_up,
+                          right_position + two_meters_up,
+                          0.2f, color, 0.05f);
+    }
+    
+
+    if(current_draw){
+      debug_helper.DrawLine(current_position_inner + two_meters_up,
+                          next_current_position_inner + two_meters_up,
+                          0.2f, color, 0.05f);
+      debug_helper.DrawLine(current_position_outer + two_meters_up,
+                          next_current_position_outer + two_meters_up,
+                          0.2f, color, 0.05f);
+    } 
+    if(left_draw){
+      debug_helper.DrawLine(current_position_inner + two_meters_up,
+                          next_current_position_inner + two_meters_up,
+                          0.2f, color, 0.05f);
+      debug_helper.DrawLine(left_position + two_meters_up,
+                          next_left_position + two_meters_up,
+                          0.2f, color, 0.05f);
+    }
+    if(right_draw){
+      debug_helper.DrawLine(current_position_outer + two_meters_up,
+                          next_current_position_outer + two_meters_up,
+                          0.2f, color, 0.05f);
+      debug_helper.DrawLine(right_position + two_meters_up,
+                          next_right_position + two_meters_up,
+                          0.2f, color, 0.05f);
+    }
+    
+    //color = {255u, 0u, 0u};
+    
+    // debug_helper.DrawLine(current_position + two_meters_up,
+    //                       next_position + two_meters_up,
+    //                       0.2f, color, 0.05f);
+  }
+  
+}
+
+float LocalizationStage::ComputeBestLateralOffset(ActorId actor_id, const unsigned long index)
+{
+  LocalizationData &localization = output_array.at(index);
+  std::vector<MTS_Region> candidate_region = localization.situation.CandidateRegions;
+
+  float actor_half_width = simulation_state.GetDimensions(actor_id).y; 
+  cg::Vector3D actor_velocity = simulation_state.GetVelocity(actor_id);
+  float actor_forward_velocity = actor_velocity.Length(); 
+
+  MTS_Region best_region; //?Unused
+  
+  int valid_space_ID = -1;
+  float max_valid_cost = 0.0f;
+  size_t size = candidate_region.size();
+
+  if(size == 0)
+    return 0.0;
+
+  for(size_t i = 0; i < size; ++i)
+  {
+    if(candidate_region[i].width < 1.8f * actor_half_width )
+      continue;
+    
+    cg::Location region_local_location = candidate_region.at(i).location;
+    simulation_state.GlobalToLocal(actor_id, region_local_location);
+    float offset_diff = region_local_location.y;
+
+    float safe_offset;
+    bool isSafeSpace = true;
+
+    if(candidate_region[i].width < actor_half_width * 2)
+    {
+      isSafeSpace = false;
+      candidate_region[i].safety = 0.0f;
+    }
+    else if(offset_diff < 0) // check if the front and the rear of subject vehicle at the desired offset are safe
+    {
+      bool safeLeftSpace = CheckLeftSafety(actor_id, offset_diff , &safe_offset , candidate_region.at(i), localization);
+      bool adjustOffset = localization.situation.SpaceOriented  && safe_offset < 0.0f; //actor_lateral_offset;
+
+      if( !safeLeftSpace && !adjustOffset ) 
+        isSafeSpace = false;
+
+      else if( !safeLeftSpace )
+        offset_diff = safe_offset; // - actor_lateral_offset;
+    }
+    else if( offset_diff > 0 ) // check if the front and the rear of subject vehicle at the desired offset are safe
+    {
+      bool safeRightSpace = CheckRightSafety(actor_id, offset_diff, &safe_offset , candidate_region.at(i), localization);
+      bool adjustOffset = localization.situation.SpaceOriented  && safe_offset > 0.0f; //actor_lateral_offset;
+
+      if( !safeRightSpace && !adjustOffset )
+        isSafeSpace = false;
+
+      else if( !safeRightSpace )
+        offset_diff = safe_offset; // - actor_lateral_offset;
+    }
+    
+    offset_diff = std::abs(offset_diff);
+    float gap = candidate_region.at(i).gap;
+
+    cg::Vector3D actor_local_velocity = actor_velocity;
+    simulation_state.GetRotation(actor_id).InverseRotateVector(actor_local_velocity);
+    bool velCosistent = (offset_diff * actor_local_velocity.y) > 0;
+    float speed_diff = candidate_region.at(i).maxPassingSpeed - actor_forward_velocity;
+    float safety = candidate_region.at(i).safety;
+    //std::cout << "actor_local velocity: " << actor_local_velocity.y << std::endl;
+    float w_speed	= 0.0f; //param->mRegionSelectionWeight->weight_speed;
+    float w_gap		= 1.0f; //param->mRegionSelectionWeight->weight_gap;
+    float w_dis		= -4.0f; //param->mRegionSelectionWeight->weight_lateralDistance;
+    float w_vel		= 0.0f; //param->mRegionSelectionWeight->weight_velocityConsistency;
+    float w_safe	= 5.0f; //param->mRegionSelectionWeight->weight_safety;
+
+    // bool dirPriority = false;
+    // int laneIdx = edge->getLaneID( region->offset );
+    // MTS_Lane *lane = edge->getLane( laneIdx );
+    // bool priority = lane->havePriority( typeCode );
+    // bool permission = lane->havePermission( typeCode );
+    // bool target = laneIdx == veh->getDesireLane();
+  
+    // MTS_Vehicle *brokenVehicle = lane->getBlockage();
+    // bool blockage = lane->endOfRoad() || ( brokenVehicle != NULL && _checkBlockage( region ,  brokenVehicle ) );
+    
+    // float turnControl = _turnControl( veh , region );
+    
+    // float w_dir			= param->mRegionSelectionWeight->weight_targetDirection;
+    // float w_blockage	= -param->mRegionSelectionWeight->weight_blockage;
+    // float w_priority	= param->mRegionSelectionWeight->weight_priority;
+    // float w_permission	= param->mRegionSelectionWeight->weight_permission; 
+    // float w_target		= param->mRegionSelectionWeight->weight_targetLane;
+    // float w_turnControl = param->mRegionSelectionWeight->weight_turnControl;
+
+    candidate_region.at(i).preference = w_speed * speed_diff + w_gap * gap + w_dis * offset_diff + w_vel * velCosistent + w_safe * safety;
+                //+ w_dir * dirPriority + w_priority * priority + w_permission * permission + w_target * target + w_blockage * blockage + w_turnControl * turnControl;
+    
+    if(isSafeSpace && candidate_region.at(i).preference > max_valid_cost)
+    {
+      valid_space_ID = i;
+      max_valid_cost = candidate_region.at(i).preference;
+    }
+  }
+
+  if(valid_space_ID == -1)
+  {
+    return 0.0f;
+  }
+
+  cg::Location target_location = candidate_region.at(valid_space_ID).location;
+  simulation_state.GlobalToLocal(actor_id, target_location); 
+  return target_location.y;
+
+}
+
+///
+
+bool LocalizationStage::CheckLeftSafety(ActorId actor_id, float desired_offset , float *safe_offset , MTS_Region region, LocalizationData &localization)
+{
+  float t = GetLateralTime(desired_offset, actor_id, localization);
+  float v = desired_offset / t;
+  
+  //check BorderVehicle
+  if(region.leftBorderVehicle)
+  {
+    ActorId leftVeh = region.leftBorderVehicle.get();
+    cg::Location left_veh_location = simulation_state.GetLocation(leftVeh);
+
+    cg::Location local_location = left_veh_location;
+    simulation_state.GlobalToLocal(actor_id, local_location);
+    bool lateralOverlap = (simulation_state.GetDynamicWidth(leftVeh) + simulation_state.GetDynamicWidth(actor_id)) / 2.0f < std::abs(local_location.y - desired_offset);
+    
+    if(lateralOverlap)
+    { 
+      float actor_head_offset = simulation_state.GetDynamicLength(actor_id);
+      const float target_head_offset = local_location.x + simulation_state.GetDynamicLength(leftVeh);
+      if(actor_head_offset <= target_head_offset)
+        return 0.0f;
+    }
+  }
+
+  bool safe = true;
+  float safe_time;
+  float min_safe_time = FLT_MAX;
+
+  if(safe_offset) 
+    *safe_offset = desired_offset;
+  
+  region.safety = 1.0;
+  
+  // for( ; it != vehEnd ; ++it )
+  // {
+  if(localization.neighbor.LeftRearVehicle)
+  {
+    ActorId left_rear_vehicle = localization.neighbor.LeftRearVehicle.get();
+    bool checkSafe = CheckSafety(actor_id, left_rear_vehicle, v, t, &safe_time);
+  
+  //float patience = mSubject->getPatience();
+  // if( !checkSafe && patience > 0.75)
+  // {
+  //   region->safety = 0.85;
+  //   checkSafe = true;
+  // }
+
+    if( !checkSafe )
+    {
+      if( safe_offset && safe_time < min_safe_time )
+      {
+        min_safe_time = safe_time;
+        cg::Location left_rear_location = simulation_state.GetLocation(left_rear_vehicle);
+        cg::Location local_location = left_rear_location;
+        
+        simulation_state.GlobalToLocal(actor_id, local_location);        
+        cg::Vector3D current_speed = simulation_state.GetVelocity(left_rear_vehicle);
+        simulation_state.GetRotation(actor_id).InverseRotateVector(current_speed);
+        float min_dis = simulation_state.GetDimensions(actor_id).y; //(GetPsychoWidth(simulation_state.GetVelocity(actor_id).x) + simulation_state.GetDimensions(actor_id).y * 2) / 2.0f + 2.0f;
+        *safe_offset = local_location.y + current_speed.y * safe_time + min_dis;
+      }
+      safe = false;
+      region.safety = 0.0;
+    }
+  }
+
+  // const std::vector< MTS_Vehicle* > &frontVehicles = mSubject->getLeftFrontVehicles();
+  
+  // it = frontVehicles.begin();
+  // vehEnd = frontVehicles.end();
+
+  // for( ; it != vehEnd ; ++it )
+  // {
+  if(localization.neighbor.LeftFrontVehicle)
+  {
+    ActorId left_front_vehicle = localization.neighbor.LeftFrontVehicle.get();
+    bool checkSafe = CheckSafety(actor_id, left_front_vehicle, v, t, &safe_time);
+  
+  //float patience = mSubject->getPatience();	
+  // if( !checkSafe && patience > 0.75)
+  // {
+  //   if( mSubject->getRelativeOffset( (*it) ) - (*it)->getCurrentController()->getLength()*(-2) > 0.0 )
+  //   {
+  //     checkSafe = true;
+  //     region->safety = 0.5;
+  //   }
+  // }
+
+    if(!checkSafe)
+    {
+      if(safe_offset && safe_time < min_safe_time)
+      {
+        min_safe_time = safe_time;
+        cg::Location left_front_location = simulation_state.GetLocation(left_front_vehicle);
+        cg::Location local_location = left_front_location;
+        
+        simulation_state.GlobalToLocal(actor_id, local_location);
+        cg::Vector3D current_speed = simulation_state.GetVelocity(left_front_vehicle);
+        simulation_state.GetRotation(actor_id).InverseRotateVector(current_speed);
+        float min_dis = simulation_state.GetDimensions(actor_id).y; 
+        *safe_offset = local_location.y + current_speed.y * safe_time + min_dis;
+      }
+      safe = false;
+      region.safety = 0.0;
+    }
+  }
+
+  return safe;
+}
+
+bool LocalizationStage::CheckRightSafety(ActorId actor_id, float desired_offset , float *safe_offset , MTS_Region region, LocalizationData &localization)
+{
+  float t = GetLateralTime(desired_offset, actor_id, localization);
+  float v = desired_offset / t;
+
+  //check BorderVehicle
+  if(region.rightBorderVehicle)
+  {
+    ActorId rightVeh = region.rightBorderVehicle.get();
+    cg::Location right_veh_location = simulation_state.GetLocation(rightVeh);
+    
+    cg::Location local_location = right_veh_location;
+    simulation_state.GlobalToLocal(actor_id, local_location);
+    bool lateralOverlap = (simulation_state.GetDynamicWidth(rightVeh) + simulation_state.GetDynamicWidth(actor_id)) / 2.0f < std::abs(local_location.y - desired_offset);
+
+    if( lateralOverlap )
+    {
+      float actor_head_offset = simulation_state.GetDynamicLength(actor_id);
+      const float target_head_offset = local_location.x + simulation_state.GetDynamicLength(rightVeh);
+      if( actor_head_offset <= target_head_offset )
+        return 0.0f;
+    }
+  }
+
+  bool safe = true;
+  float safe_time;
+  float min_safe_time = FLT_MAX;
+  
+  if( safe_offset ) 
+    *safe_offset = desired_offset;
+  
+  region.safety = 1.0;
+  
+  if(localization.neighbor.RightRearVehicle)
+  {
+    ActorId right_rear_vehicle = localization.neighbor.RightRearVehicle.get();
+    bool checkSafe = CheckSafety(actor_id, right_rear_vehicle, v, t, &safe_time);
+
+    if(!checkSafe)
+    {
+      if( safe_offset && safe_time < min_safe_time )
+      {
+        min_safe_time = safe_time;
+        cg::Location right_rear_location = simulation_state.GetLocation(right_rear_vehicle);
+        cg::Location local_location = right_rear_location;
+        
+        simulation_state.GlobalToLocal(actor_id, local_location);
+        cg::Vector3D current_speed = simulation_state.GetVelocity(right_rear_vehicle);
+        simulation_state.GetRotation(actor_id).InverseRotateVector(current_speed);
+        float min_dis = simulation_state.GetDimensions(actor_id).y;
+        *safe_offset = local_location.y + current_speed.y * safe_time + min_dis;
+      }
+      safe = false;
+      region.safety = 0.0;
+    }
+  }
+
+  if(localization.neighbor.RightFrontVehicle)
+  {
+    ActorId right_front_vehicle = localization.neighbor.RightFrontVehicle.get();
+    bool checkSafe = CheckSafety(actor_id, right_front_vehicle, v, t, &safe_time);
+
+    if(!checkSafe)
+    {
+      if(safe_offset && safe_time < min_safe_time )
+      {
+        min_safe_time = safe_time;
+        cg::Location right_front_location = simulation_state.GetLocation(right_front_vehicle);
+        cg::Location local_location = right_front_location;
+        simulation_state.GlobalToLocal(actor_id, local_location);
+        cg::Vector3D current_speed = simulation_state.GetVelocity(right_front_vehicle);
+        simulation_state.GetRotation(actor_id).InverseRotateVector(current_speed);
+        float min_dis = simulation_state.GetDimensions(actor_id).y;
+        *safe_offset = local_location.y + current_speed.y * safe_time + min_dis;
+      }
+      safe = false;
+      region.safety = 0.0;
+    }
+  }
+
+  return safe;
+}
+
+bool LocalizationStage::CheckSafety(ActorId actor_id, ActorId target_id, float moveSpeed, float moveTime, float* safeTime)
+{
+  cg::Vector3D actor_speed = simulation_state.GetVelocity(actor_id);
+  simulation_state.GetRotation(actor_id).InverseRotateVector(actor_speed);
+  cg::Vector3D target_speed = simulation_state.GetVelocity(target_id);
+  simulation_state.GetRotation(actor_id).InverseRotateVector(target_speed);
+  //std::cout << "target speed: " << target_speed.y << std::endl;
+  cg::Vector2D v_s(actor_speed.x, moveSpeed);
+  cg::Vector2D v_o(target_speed.x, target_speed.y);
+  float relative_x = simulation_state.GetRelativeOffset(actor_id, target_id);
+  float relative_y = simulation_state.GetLateralSeparation(actor_id, target_id);
+  cg::Vector2D p_r(relative_x, relative_y);
+  cg::Vector2D v_r = v_s - v_o;
+
+  float hw_s = simulation_state.GetDimensions(actor_id).y;
+  float hw_o = simulation_state.GetDimensions(target_id).y; //GetPsychoWidth(simulation_state.GetVelocity(actor_id).x)/2.0f; //?
+  float hl_s = simulation_state.GetDimensions(actor_id).x;
+  float hl_o = simulation_state.GetDimensions(target_id).x;
+  float d_y = std::abs(p_r.y);
+  float scale = (d_y - hw_s - hw_o) / d_y; 
+  if(scale < 0.0)
+    scale = 0.0;
+
+  float t_y = p_r.y * scale / v_r.y;
+
+  if(safeTime) 
+    *safeTime = t_y;
+
+  if(t_y < 0 || t_y > moveTime) 
+  {
+    return true;
+  }
+  
+  float d_o = v_o.x * RESPONSE_TIME + (v_o.x * -v_r.x) / (2 * sqrt(MAX_ACC * COMFORTABLE_DEC));
+  float d_s = v_s.x * RESPONSE_TIME + (v_s.x * v_r.x) / (2 * sqrt(MAX_ACC * COMFORTABLE_DEC));
+
+  if(d_o < 0.0)
+    d_o = 0.0;
+
+  if(d_s < 0.0)
+    d_s = 0.0;
+
+  //float p_r_s = p_r.x + v_o.x * t_y;
+  //float p_r_o = p_r.x - v_s.x * t_y;
+  float p_r_t = p_r.x - v_r.x * t_y;
+  //float d_x = std::abs( p_r_t );
+
+  if((p_r_t < 0 && p_r_t + hl_s + hl_o < -d_o * GAP_ACCEPT_RATIO) || (p_r_t >= 0 && p_r_t - hl_s - hl_o > d_s * GAP_ACCEPT_RATIO))
+    return true;
+  
+  return false;
+}
+
+///
+
+float LocalizationStage::GetLateralTime(float desired_lateral_offset, ActorId actor_id, LocalizationData &localization)
+{
+  cg::Vector3D actor_speed = simulation_state.GetVelocity(actor_id);
+  simulation_state.GetRotation(actor_id).InverseRotateVector(actor_speed);
+  float lateral_veocity = actor_speed.y;
+  float lateral_time = 2.0f * desired_lateral_offset / lateral_veocity;
+
+  // if the time to decelerate to zero lateral speed is smaller than maximum movement time
+  if( lateral_time > 0.0f && lateral_time < MAX_MOVEMENT_TIME ) 
+    return lateral_time;
+
+  return GetLongitudinalTime(actor_id, localization);
+}
+
+float LocalizationStage::GetLongitudinalTime(ActorId actor_id, LocalizationData &localization)
+{
+  float longitudinal_velocity = simulation_state.GetVelocity(actor_id).Length(); 
+  float longitudinal_time = GetGapToStopLine(actor_id) / longitudinal_velocity;
+
+  if(localization.leader.MainLeader)
+  {
+    float s = simulation_state.GetGap(actor_id, localization.leader.MainLeader.get());
+    longitudinal_time = std::min(s / longitudinal_velocity, longitudinal_time);
+  }
+
+  if( longitudinal_time > 0 && longitudinal_time < MAX_MOVEMENT_TIME )
+    return longitudinal_time;
+
+  return MAX_MOVEMENT_TIME;
+}
+
+float LocalizationStage::GetGapToStopLine(ActorId actor_id)
+{
+  float halfVehLen = simulation_state.GetDimensions(actor_id).x;
+  float stopOffset = MAX_OBSERVING_DISTANCE; //getLane()->getLength();
+
+  return stopOffset - halfVehLen;
+}
 
 
 } // namespace traffic_manager

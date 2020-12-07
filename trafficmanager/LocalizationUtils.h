@@ -57,7 +57,8 @@ namespace traffic_manager {
   TargetWPInfo GetTargetWaypoint(const Buffer& waypoint_buffer, const float& target_point_distance);
 
 
-  /////MTS Update
+  /////MTS Extension
+  
   float VectorDotProduct(const cg::Vector3D &heading_vector, 
                          const cg::Vector3D &next_vector);
 

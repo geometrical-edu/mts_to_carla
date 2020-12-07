@@ -14,6 +14,11 @@ using namespace constants::SpeedThreshold;
 using constants::HybridMode::HYBRID_MODE_DT;
 using constants::HybridMode::HYBRID_MODE_DT_FL;
 
+/////MTS Extension
+
+using namespace constants::MTSCar;
+using namespace constants::PID;
+
 MotionPlanStage::MotionPlanStage(
   const std::vector<ActorId> &vehicle_id_list,
   const SimulationState &simulation_state,
@@ -90,15 +95,38 @@ void MotionPlanStage::Update(const unsigned long index) {
     lateral_parameters = urban_lateral_parameters;
   }
 
-  // Target velocity for vehicle.
-  const float ego_speed_limit = simulation_state.GetSpeedLimit(actor_id);
-  float max_target_velocity = parameters.GetVehicleTargetVelocity(actor_id, ego_speed_limit) / 3.6f;
+  /////MTS TODO
+  bool MTS_ON = true;
+  bool isJunction = waypoint_buffer.at(0)->CheckJunction();
+  
+  bool collision_emergency_stop = false;
+  float dynamic_target_velocity = 0.0f;
 
-  // Collision handling and target velocity correction.
-  std::pair<bool, float> collision_response = CollisionHandling(collision_hazard, tl_hazard, ego_velocity,
-                                                                ego_heading, max_target_velocity);
-  bool collision_emergency_stop = collision_response.first;
-  float dynamic_target_velocity = collision_response.second;
+  if(MTS_ON && !isJunction){
+    collision_emergency_stop = false;
+    dynamic_target_velocity = ego_speed + DT * GetLongitudinalAcc(localization, actor_id);
+    dynamic_target_velocity = std::max(dynamic_target_velocity, 0.0f);
+
+    //if(actor_id == vehicle_id_list.at(0))
+    //  std::cout << "MTS_ON and NOT Junction V: "<< dynamic_target_velocity <<"\n";
+  }
+  
+  /////MTS Modify
+  if(!MTS_ON || isJunction)
+  {
+    // Target velocity for vehicle.
+    const float ego_speed_limit = simulation_state.GetSpeedLimit(actor_id);
+    float max_target_velocity = parameters.GetVehicleTargetVelocity(actor_id, ego_speed_limit) / 3.6f;
+
+    // Collision handling and target velocity correction.
+    std::pair<bool, float> collision_response = CollisionHandling(collision_hazard, tl_hazard, ego_velocity,
+                                                                  ego_heading, max_target_velocity);
+    collision_emergency_stop = collision_response.first;
+    dynamic_target_velocity = collision_response.second;
+    
+    //if(actor_id == vehicle_id_list.at(0))
+    //  std::cout << "MTS_OFF or Junction V: "<< dynamic_target_velocity <<"\n";
+  }
 
   // Don't enter junction if there isn't enough free space after the junction.
   bool safe_after_junction = SafeAfterJunction(localization, tl_hazard, collision_emergency_stop);
@@ -122,7 +150,8 @@ void MotionPlanStage::Update(const unsigned long index) {
                                     longitudinal_parameters, lateral_parameters);
 
     if (emergency_stop) {
-
+      //if(actor_id == vehicle_id_list.at(0))
+      //  std::cout<<"Emergency stop\n";
       current_state.deviation_integral = 0.0f;
       current_state.velocity_integral = 0.0f;
       actuation_signal.throttle = 0.0f;
@@ -287,6 +316,178 @@ void MotionPlanStage::Reset() {
   pid_state_map.clear();
   teleportation_instance.clear();
 }
+
+float MotionPlanStage::GetLongitudinalAcc(const LocalizationData &localization, ActorId actor_id) 
+{
+  float acc_free = GetFreeAcc(actor_id);
+  float brake_first = 0.0f;
+  float brake_second = 0.0f;
+  
+  if(localization.leader.MainLeader)
+    brake_first = GetAcc(actor_id, localization.leader.MainLeader.get());
+  if(localization.leader.PotentialLeader)
+    brake_second = GetAcc(actor_id, localization.leader.PotentialLeader.get());
+  
+  float max_deceleration = std::max(brake_first, brake_second);
+
+  // if(traffic_light_hazard)
+  // {
+  // 	float brake_stopLine = GetDecForStopLine(actor_id);
+  //   max_deceleration = std::max(max_deceleration, brake_stopLine)
+  // }
+  
+  float acc = acc_free - max_deceleration;
+
+  // if(actor_id == vehicle_id_list.at(0))
+  //   std::cout << "Longitudinal Acc:" << acc << std::endl;
+    //std::cout << acc_free << ", " << brake_first << ", " << brake_second << ", " << max_deceleration << std::endl;
+
+  return acc;
+
+}
+
+float MotionPlanStage::GetFreeAcc(ActorId actor_id)
+{
+  const float ego_speed_limit = simulation_state.GetSpeedLimit(actor_id);
+  const float v_current = simulation_state.GetVelocity(actor_id).Length();
+  float v_desired = parameters.GetVehicleTargetVelocity(actor_id, ego_speed_limit) / 3.6f;
+  
+  // if(actor_id == vehicle_id_list.at(0))
+  //   std::cout << "Current speed: " << v_current << ", desired speed: " << v_desired << std::endl;
+
+  if( v_desired == 0.0f )
+    return 0.0f; 
+
+  float acc = MAX_ACC * (1.0f - pow( v_current / v_desired, FREE_ACCELERATION_EXP));
+
+  return acc;
+}
+
+float MotionPlanStage::GetAcc(ActorId actor_id, ActorId target_id)
+{
+  if(!target_id) 
+    return 0.0f;
+
+  float gap = simulation_state.GetGap(actor_id, target_id);
+  bool gapExtended = false;
+
+  // if(actor_id == vehicle_id_list.at(0))
+  //   std::cout << "Gap to leader: " << gap << std::endl;
+
+  if( gap < 0.0f) // current leader but the gap less than 0
+  {
+  	// try to extend the gap according to the yaw angle of the leader
+  	gapExtended = true;
+  	gap += GetExtendedGap(actor_id, target_id);
+  }
+
+  if( gap < 0.0f ) // the gap is less than 0 (even after extension)
+  	return 0.0f;
+
+  const float actor_velocity = simulation_state.GetVelocity(actor_id).Length();
+  const float target_velocity = simulation_state.GetVelocity(target_id).Length();
+  float s = ComputeDesiredGap(actor_velocity, target_velocity, target_id);
+  
+  bool approaching = (actor_velocity - target_velocity) >= 0.0f;
+  bool closeEnough = gap <= 1.2f * s;
+  float acc = MAX_ACC * std::pow(s / gap, 2.0f) * (approaching || closeEnough);
+
+  if(!approaching && closeEnough)
+    acc = MAX_ACC * (s / gap);
+
+  // if(actor_id == vehicle_id_list.at(0))
+  //   std::cout << "Leader speed: " << target_velocity << ", desired gap: " << s << ", approach: " << approaching << ", close enough: " << closeEnough << ", Acc: " << acc << std::endl;
+  
+  if(gapExtended == false && acc > MAX_ACC)
+  {
+  	float extendedGap = GetExtendedGap(actor_id, target_id);
+  	if(extendedGap != 0)
+  	{
+  		float gapRatio = gap / (gap + extendedGap);
+  		acc *= gapRatio * gapRatio;
+  	}
+  }
+
+  return acc;
+}
+
+float MotionPlanStage::GetExtendedGap(ActorId actor_id, ActorId target_id)
+{
+  float actor_yaw = simulation_state.GetRotation(actor_id).yaw;
+  
+  if(actor_yaw == 0.0f)
+    return 0.0f;
+
+  float actor_yaw_abs = std::abs(actor_yaw);
+	float halfVehLen = simulation_state.GetDimensions(actor_id).x;
+  float halfWidth = simulation_state.GetDimensions(actor_id).y;
+
+  float width1 = halfVehLen * 2 * sin(actor_yaw_abs);
+  float width2 = halfWidth * 2 * cos(actor_yaw_abs);
+  float length1 = halfVehLen * 2 * cos(actor_yaw_abs);
+	float length2 = halfWidth * 2 * sin(actor_yaw_abs);
+
+  float LeftWidth = 0.0f;
+  float RightWidth = 0.0f;
+  float MaxLeftGap = 0.0f;
+  float MaxRightGap = 0.0f;
+
+  if( actor_yaw > 0 )
+  {
+    LeftWidth = width2;
+    RightWidth = width1;
+    MaxLeftGap = length2;
+    MaxRightGap = length1;
+  }
+  
+  else
+  {
+    LeftWidth = width1;
+    RightWidth = width2;
+    MaxLeftGap = length1;
+    MaxRightGap = length2;
+  }
+    
+  float sepLatOffset = LeftWidth - halfWidth;
+  float predHalfWidth = simulation_state.GetDimensions(target_id).y; 
+  float myHalfWidth = simulation_state.GetDimensions(actor_id).y;
+  float latSeparation = std::abs(simulation_state.GetLateralSeparation(actor_id, target_id));
+
+  if( latSeparation > predHalfWidth + myHalfWidth )
+    return 0.0f;
+
+  float myLeftLatOffset = -myHalfWidth;
+  float myRightLatOffset = myHalfWidth;
+  float extendedGap = 0.0f;
+  
+  if(myLeftLatOffset > sepLatOffset)
+  {
+    float ratio = std::min((myLeftLatOffset - sepLatOffset) / RightWidth, 1.0f);
+    extendedGap = MaxRightGap * ratio;
+  }
+  else if(myRightLatOffset < sepLatOffset)
+  {
+    float ratio = std::min((sepLatOffset - myRightLatOffset) / LeftWidth, 1.0f);
+		extendedGap = MaxLeftGap * ratio;
+  }
+
+  return extendedGap;
+}
+
+float MotionPlanStage::ComputeDesiredGap(float actor_velocity, float target_velocity, ActorId target_id)
+{
+  if(!target_id)
+  	return MIN_GAP + actor_velocity * RESPONSE_TIME + actor_velocity * actor_velocity / (2 * sqrt(MAX_ACC * COMFORTABLE_DEC));
+
+  float speedCon = (actor_velocity * RESPONSE_TIME + actor_velocity * (actor_velocity - target_velocity) / (2 * sqrt(MAX_ACC * COMFORTABLE_DEC)));
+  float desired_gap = (MIN_GAP + speedCon);
+
+  if(desired_gap < 0.0f)
+    desired_gap = MIN_GAP;
+
+  return desired_gap;
+}
+
 
 } // namespace traffic_manager
 } // namespace carla

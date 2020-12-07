@@ -69,6 +69,15 @@ public:
   void RemoveActor(const ActorId actor_id);
 
   void Reset();
+
+  /////MTS Extension
+
+  float GetLongitudinalAcc(const LocalizationData &localization, ActorId actor_id);
+  float GetFreeAcc(ActorId actor_id);
+  float GetAcc(ActorId actor_id, ActorId target_id);
+  float ComputeDesiredGap(float actor_velocity, float target_velocity, ActorId target_id);
+  float GetExtendedGap(ActorId actor_id, ActorId target_id);
+  
 };
 
 } // namespace traffic_manager

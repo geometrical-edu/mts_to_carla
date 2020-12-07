@@ -132,7 +132,7 @@ static const float INV_BUFFER_STEP_THROUGH = 0.1f;
 /////MTS Extension
 
 namespace MTSCar {
-static const float MAX_ACC = 9.25f;
+static const float MAX_ACC = 12.0f;
 static const float FREE_ACCELERATION_EXP = 4.0f;
 static const float COMFORTABLE_DEC = 6.65f;
 
@@ -140,7 +140,7 @@ static const float RESPONSE_TIME = 0.02f;
 static const float MAX_MOVEMENT_TIME = 2.0f;
 static const float TIME_TO_CONTACT = 0.0f;
 
-static const float MIN_GAP = 1.5f;
+static const float MIN_GAP = 3.0f;
 static const float GAP_ACCEPT_RATIO = 0.664f;
 
 static const float MAX_OBSERVING_DISTANCE = 50.0f;
