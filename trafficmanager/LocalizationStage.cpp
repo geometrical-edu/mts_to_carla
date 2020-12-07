@@ -125,36 +125,13 @@ void LocalizationStage::Update(const unsigned long index) {
     const SimpleWaypointPtr actor_waypoint = local_map->GetWaypoint(vehicle_location);
     float lane_half_width = float(actor_waypoint->GetWaypoint()->GetLaneWidth()) / 2.0;
     
-    /*
-    if(actor_id == vehicle_id_list.at(0)){
-      std::cout<<"best_offset: "<<best_offset<<"\n";
-      std::cout<<"lane_half_width: "<<lane_half_width<<"\n";
-    }
-    */
-    
     if (best_offset > lane_half_width){
       force = true;
       direction = true;
-      
-      /*
-      if(actor_id == vehicle_id_list.at(0)){
-        std::cout<<"Right: best_offset > lane_half_width\n";
-        std::cout<<"force: "<<force<<"\n";
-        std::cout<<"direction: "<<direction<<"\n";
-      }
-      */
     }
     else if(best_offset < -lane_half_width){
       force = true;
       direction = false;
-      
-      /*
-      if(actor_id == vehicle_id_list.at(0)){
-        std::cout<<"Left: best_offset < -lane_half_width\n";
-        std::cout<<"force: "<<force<<"\n";
-        std::cout<<"direction: "<<direction<<"\n";
-      }
-      */
     }
   }
   
@@ -184,16 +161,6 @@ void LocalizationStage::Update(const unsigned long index) {
   /////MTS Modify
   bool auto_or_force_lane_change = MTS_ON ? force_lane_change : (parameters.GetAutoLaneChange(actor_id) || force_lane_change);
   bool front_waypoint_not_junction = !front_waypoint->CheckJunction();
-
-  /*
-  if(actor_id == vehicle_id_list.at(0)){
-        std::cout<<"auto_or_force_lane_change: "<<auto_or_force_lane_change<<"\n";
-        std::cout<<"force_lane_change: "<<force_lane_change<<"\n";
-        std::cout<<"lane_change_direction: "<<lane_change_direction<<"\n";
-        std::cout<<"=====================================================\n";
-  }
-  */
-  
   
   if (auto_or_force_lane_change
       && front_waypoint_not_junction
@@ -266,23 +233,6 @@ void LocalizationStage::Update(const unsigned long index) {
 
   // Updating geodesic grid position for actor.
   track_traffic.UpdateGridPosition(actor_id, waypoint_buffer);
-
-
-  /////MTS Extension
-
-  // MTS_SurroundingUpdate(index);
-  // MTS_RegionUpdate(index);
-  
-  /*
-  if (actor_id == vehicle_id_list.at(0))
-  {
-    DrawLeader(actor_id, output);
-    DrawNeighbor(actor_id, output);
-    DrawRegionBuffer(actor_id, output, waypoint_buffer);
-    //DrawRegion(actor_id, output);
-    //DrawBuffer(waypoint_buffer);
-  }
-  */
 
 }
 
@@ -473,20 +423,8 @@ SimpleWaypointPtr LocalizationStage::AssignLaneChange(const ActorId actor_id,
     } else if (force) {
       if (direction && right_waypoint != nullptr) {
         change_over_point = right_waypoint;
-        
-        /*
-        if (actor_id == vehicle_id_list.at(0)){
-          std::cout<<"Assign Lane Change: RIGHT\n";
-        }
-        */
       } else if (!direction && left_waypoint != nullptr) {
         change_over_point = left_waypoint;
-        
-        /*
-        if (actor_id == vehicle_id_list.at(0)){
-          std::cout<<"Assign Lane Change: LEFT\n";
-        }
-        */
       }
     }
 
@@ -572,13 +510,6 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
   double actor_road_length;
   if(!isJunction){
     const crd::Lane& actor_lane = local_map->GetLane(actor_waypoint);
-
-    /*
-    if (actor_id == vehicle_id_list.at(0)){
-      ST = actor_lane.IsStraight();
-    }
-    */
-
     actor_road_id = actor_lane.GetRoad()->GetId();
     actor_road_length = actor_lane.GetRoad()->GetLength();
     GetLocalRoadInfo(mid_info, actor_lane);
@@ -681,19 +612,6 @@ void LocalizationStage::MTS_SurroundingUpdate(const unsigned long index)
     }  
   }//for-loop
 
-  
-  /*
-  if (actor_id == vehicle_id_list.at(0)){
-    iteration_num++;
-    if(ST){
-      std::fstream file;
-      file.open("/home/stephen/Desktop/distance.txt", std::ios::app);
-      file << iteration_num << "\n";
-      file << leader_distance << "\n";
-    }
-  }
-  */
-
   //Store final result
   LocalizationData &output = output_array.at(index);
   output.leader.MainLeader = main_leader;
@@ -784,12 +702,6 @@ void LocalizationStage::DrawLeader(ActorId actor_id, LocalizationData &output)
     cc::DebugHelper::Color color_potential_leader {255u, 150u, 150u}; //Light pink
     debug_helper.DrawBox(cg::BoundingBox(second_location, box_size), actor_rotation, 0.1f, color_potential_leader, 0.01f, true);
   }
-
-  //Draw range line
-  //const cg::Vector3D actor_heading = simulation_state.GetHeading(actor_id);
-  //cg::Vector3D actor_heading_unit = actor_heading.MakeUnitVector();
-  //cg::Location actor_location_end = actor_location + cg::Location(actor_heading_unit *= MAX_OBSERVING_DISTANCE);
-  //debug_helper.DrawLine(actor_location, actor_location_end, 0.1f, color_ego, 0.3f, true);
 }
 
 void LocalizationStage::DrawNeighbor(ActorId actor_id, LocalizationData &output)
@@ -852,7 +764,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
 { 
   const ActorId actor_id = vehicle_id_list.at(index);
   const cg::Location actor_location = simulation_state.GetLocation(actor_id);
-  //+Duplcate
   float actor_half_length = simulation_state.GetDimensions(actor_id).x;
 
   LocalizationData &output = output_array.at(index);
@@ -860,7 +771,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
   MTS_Neighbor neighbor = output.neighbor;
   
   //Current region.
-  //+Duplicate
   SimpleWaypointPtr current_waypoint = local_map->GetWaypoint(actor_location);
   // MTS_Region current_region = GetRegion(actor_id, main_leader, current_waypoint, 0.0); // middle direction = 0
   MTS_Region current_region;
@@ -871,7 +781,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
   float maxSpeed = simulation_state.GetSpeedLimit(actor_id);
   if(leader.MainLeader)
   {
-    //-Add func
     ActorId main_leader = leader.MainLeader.get();
     gap = simulation_state.GetGap(actor_id, main_leader);
     maxSpeed = std::min(simulation_state.GetVelocity(main_leader).Length(), maxSpeed); // local
@@ -895,7 +804,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
   current_region.rightBorderVehicle = neighbor.RightVehicle;
 
   //Left region.
-  //+Duplicate
   SimpleWaypointPtr left_lane_waypoint = current_waypoint->GetLeftWaypoint(); 
   MTS_Region left_region;
 
@@ -906,7 +814,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
     float left_max_speed = maxSpeed;
     if(neighbor.LeftFrontVehicle)
     {
-      //-Add func
       ActorId leftFrontVeh = neighbor.LeftFrontVehicle.get();
       left_gap = simulation_state.GetGap(actor_id, leftFrontVeh);
       left_max_speed = simulation_state.GetVelocity(leftFrontVeh).Length();
@@ -930,7 +837,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
   }
   
   //Right region.
-  //+Duplicate
   SimpleWaypointPtr right_lane_waypoint = current_waypoint->GetRightWaypoint();
   MTS_Region right_region;
 
@@ -942,7 +848,6 @@ void LocalizationStage::MTS_RegionUpdate(const unsigned long index)
 
     if(neighbor.RightFrontVehicle)
     {
-      //-Add func
       ActorId rightFrontVeh = neighbor.RightFrontVehicle.get();
       right_gap = simulation_state.GetGap(actor_id, rightFrontVeh);
       right_max_speed = simulation_state.GetVelocity(rightFrontVeh).Length();

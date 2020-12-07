@@ -106,9 +106,6 @@ void MotionPlanStage::Update(const unsigned long index) {
     collision_emergency_stop = false;
     dynamic_target_velocity = ego_speed + DT * GetLongitudinalAcc(localization, actor_id);
     dynamic_target_velocity = std::max(dynamic_target_velocity, 0.0f);
-
-    //if(actor_id == vehicle_id_list.at(0))
-    //  std::cout << "MTS_ON and NOT Junction V: "<< dynamic_target_velocity <<"\n";
   }
   
   /////MTS Modify
@@ -123,9 +120,6 @@ void MotionPlanStage::Update(const unsigned long index) {
                                                                   ego_heading, max_target_velocity);
     collision_emergency_stop = collision_response.first;
     dynamic_target_velocity = collision_response.second;
-    
-    //if(actor_id == vehicle_id_list.at(0))
-    //  std::cout << "MTS_OFF or Junction V: "<< dynamic_target_velocity <<"\n";
   }
 
   // Don't enter junction if there isn't enough free space after the junction.
@@ -150,8 +144,6 @@ void MotionPlanStage::Update(const unsigned long index) {
                                     longitudinal_parameters, lateral_parameters);
 
     if (emergency_stop) {
-      //if(actor_id == vehicle_id_list.at(0))
-      //  std::cout<<"Emergency stop\n";
       current_state.deviation_integral = 0.0f;
       current_state.velocity_integral = 0.0f;
       actuation_signal.throttle = 0.0f;
@@ -351,9 +343,6 @@ float MotionPlanStage::GetFreeAcc(ActorId actor_id)
   const float ego_speed_limit = simulation_state.GetSpeedLimit(actor_id);
   const float v_current = simulation_state.GetVelocity(actor_id).Length();
   float v_desired = parameters.GetVehicleTargetVelocity(actor_id, ego_speed_limit) / 3.6f;
-  
-  // if(actor_id == vehicle_id_list.at(0))
-  //   std::cout << "Current speed: " << v_current << ", desired speed: " << v_desired << std::endl;
 
   if( v_desired == 0.0f )
     return 0.0f; 
@@ -370,9 +359,6 @@ float MotionPlanStage::GetAcc(ActorId actor_id, ActorId target_id)
 
   float gap = simulation_state.GetGap(actor_id, target_id);
   bool gapExtended = false;
-
-  // if(actor_id == vehicle_id_list.at(0))
-  //   std::cout << "Gap to leader: " << gap << std::endl;
 
   if( gap < 0.0f) // current leader but the gap less than 0
   {
@@ -394,9 +380,6 @@ float MotionPlanStage::GetAcc(ActorId actor_id, ActorId target_id)
 
   if(!approaching && closeEnough)
     acc = MAX_ACC * (s / gap);
-
-  // if(actor_id == vehicle_id_list.at(0))
-  //   std::cout << "Leader speed: " << target_velocity << ", desired gap: " << s << ", approach: " << approaching << ", close enough: " << closeEnough << ", Acc: " << acc << std::endl;
   
   if(gapExtended == false && acc > MAX_ACC)
   {
